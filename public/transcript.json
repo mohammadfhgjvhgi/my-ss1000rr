@@ -1,0 +1,14 @@
+{
+  "created": 1774569316,
+  "id": "202603270755150bee41861562400b",
+  "request_id": "202603270755150bee41861562400b",
+  "text": "Pangkua, he do tangka da tangka tayu tangka hayou yuru tangga sani tayu wai bi bye",
+  "usage": {
+    "completion_tokens": 33,
+    "prompt_tokens": 358,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 391
+  }
+}

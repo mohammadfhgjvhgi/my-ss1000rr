@@ -1,0 +1,101 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Course {
+  id          String   @id @default(cuid())
+  name        String
+  instructor  String?
+  location    String?
+  credits     Float    @default(0)
+  color       String   @default("#3b82f6")
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  schedules   CourseSchedule[]
+  assignments Assignment[]
+  exams       Exam[]
+  grades      Grade[]
+}
+
+model CourseSchedule {
+  id        String   @id @default(cuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  dayOfWeek Int      // 0-6 (Sunday to Saturday)
+  startTime String   // HH:mm format
+  endTime   String   // HH:mm format
+  weekStart Int?     // Start week number
+  weekEnd   Int?     // End week number
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Assignment {
+  id          String   @id @default(cuid())
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  dueDate     DateTime
+  status      String   @default("todo") // todo, in_progress, completed, overdue
+  priority    String   @default("medium") // low, medium, high
+  remindAt    Int?     // Days before due date to remind
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Exam {
+  id          String   @id @default(cuid())
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  examDate    DateTime
+  duration    Int?     // Duration in minutes
+  location    String?
+  seatNumber  String?
+  remindAt    Int?     // Days before exam to remind
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Grade {
+  id          String   @id @default(cuid())
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  semester    String   // e.g., "2024-Fall"
+  score       Float
+  gradePoint  Float?   // GPA points
+  credits     Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Quote {
+  id        String   @id @default(cuid())
+  content   String
+  author    String?
+  source    String?
+  isBookmarked Boolean @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Settings {
+  id                    String   @id @default(cuid())
+  totalRequiredCredits  Float    @default(150)
+  targetGPA             Float    @default(3.5)
+  currentSemester       String   @default("2024-Fall")
+  reminderEnabled       Boolean  @default(true)
+  theme                 String   @default("light")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
