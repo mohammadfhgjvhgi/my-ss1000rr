@@ -1609,66 +1609,391 @@ export const useStore = create<LifeOSState>()(
       commandsQueue: [],
       executeCommand: (command) => {
         const state = get();
+        let result: { xp: number; effects: string[] } = { xp: 0, effects: [] };
+        
+        // ⚔️ Multi-Effect Command System
+        // كل أمر = Primary Action + System Effects
         
         switch (command.type) {
-          case 'add_exam':
-            // يمكن إضافة اختبار جديد
-            state.addExam({
-              id: generateId(),
-              courseId: String(command.data.courseId || ''),
-              title: String(command.data.title || 'اختبار جديد'),
-              examDate: new Date(String(command.data.date || new Date())),
-              createdAt: new Date(),
-              updatedAt: new Date()
-            });
-            break;
+          // ============================================
+          // 📚 RECORD_STUDY - تسجيل الدراسة مع التأثيرات
+          // ============================================
+          case 'record_study': {
+            const subject = String(command.data.subject || command.data.title || 'دراسة');
+            const hours = Number(command.data.hours || command.data.value || 1);
+            const minutes = Number(command.data.minutes || 0);
+            const totalMinutes = (hours * 60) + minutes;
             
-          case 'add_task':
+            // 1️⃣ Primary Action - تسجيل جلسة
+            state.addStudySession({
+              id: generateId(),
+              subject,
+              duration: totalMinutes,
+              completed: true,
+              date: new Date(),
+              createdAt: new Date(),
+              xpEarned: totalMinutes * 2
+            });
+            
+            // 2️⃣ XP Reward
+            const xpEarned = Math.round(totalMinutes * 2);
+            state.addXP(xpEarned, `دراسة ${subject}`);
+            result.effects.push(`📚 سجلت ${hours} ساعة دراسة`);
+            result.effects.push(`⭐ +${xpEarned} XP`);
+            
+            // 3️⃣ Update Skill
+            const skill = state.skills.find((s: any) => 
+              s.name.toLowerCase().includes(subject.toLowerCase()) ||
+              subject.toLowerCase().includes(s.name.toLowerCase())
+            );
+            if (skill) {
+              state.updateSkill(skill.id, {
+                practiceHours: (skill.practiceHours || 0) + hours,
+                progress: Math.min(100, (skill.progress || 0) + (hours * 2)),
+                updatedAt: new Date()
+              });
+              result.effects.push(`🎯 تطورت مهارة ${skill.name}`);
+            }
+            
+            // 4️⃣ Update Streak
+            state.updateStreak();
+            result.effects.push(`🔥 حافظت على التتابع`);
+            
+            result.xp = xpEarned;
+            break;
+          }
+          
+          // ============================================
+          // 💰 ADD_TRANSACTION - المالية مع التأثيرات
+          // ============================================
+          case 'add_transaction': {
+            const type = String(command.data.type || 'expense') as 'income' | 'expense';
+            const amount = Number(command.data.amount || 0);
+            const category = String(command.data.category || 'general');
+            const description = String(command.data.description || command.data.title || '');
+            let xpEarned = 5;
+            
+            // 1️⃣ Primary Action
+            state.addTransaction({
+              id: generateId(),
+              type,
+              amount,
+              category,
+              description,
+              date: new Date(),
+              createdAt: new Date()
+            });
+            
+            if (type === 'expense') {
+              result.effects.push(`💸 صرفت ${amount} شيكل على ${description}`);
+              
+              // 2️⃣ High Spending Alert
+              const todayExpenses = state.transactions
+                .filter((t: any) => 
+                  t.type === 'expense' && 
+                  new Date(t.date).toDateString() === new Date().toDateString()
+                )
+                .reduce((sum: number, t: any) => sum + t.amount, 0) + amount;
+              
+              if (amount > 100) {
+                result.effects.push(`⚠️ صرف كبير!`);
+                xpEarned = 0;
+              }
+              if (todayExpenses > 200) {
+                result.effects.push(`🚨 إجمالي الصرف اليوم: ${todayExpenses} شيكل`);
+              }
+            } else {
+              result.effects.push(`💰 دخل: ${amount} شيكل`);
+              xpEarned = Math.round(amount / 10);
+              result.effects.push(`⭐ +${xpEarned} XP`);
+            }
+            
+            state.addXP(xpEarned, type === 'income' ? 'تسجيل دخل' : 'تسجيل مصروف');
+            result.xp = xpEarned;
+            break;
+          }
+          
+          // ============================================
+          // 📋 ADD_TASK - المهمة مع التأثيرات
+          // ============================================
+          case 'add_task': {
+            const title = String(command.data.title || 'مهمة جديدة');
+            const priority = String(command.data.priority || 'medium') as Priority;
+            const dueDate = command.data.dueDate ? new Date(command.data.dueDate) : new Date();
+            
+            let xpEarned = 10;
+            
+            // 1️⃣ Primary Action
             state.addAssignment({
               id: generateId(),
               courseId: String(command.data.courseId || ''),
-              title: String(command.data.title || 'مهمة جديدة'),
-              dueDate: new Date(String(command.data.dueDate || new Date())),
+              title,
+              dueDate,
               status: 'todo',
-              priority: String(command.data.priority || 'medium') as Priority,
+              priority,
               createdAt: new Date(),
               updatedAt: new Date()
             });
-            break;
             
-          case 'set_priority':
-            if (command.data.taskId) {
-              state.updateAssignment(String(command.data.taskId), {
-                priority: String(command.data.priority || 'medium') as Priority
-              });
+            result.effects.push(`📝 أضفت مهمة: ${title}`);
+            
+            // 2️⃣ Priority XP
+            switch (priority) {
+              case 'critical':
+                xpEarned = 25;
+                result.effects.push(`🔥 أولوية حرجة!`);
+                break;
+              case 'high':
+                xpEarned = 15;
+                result.effects.push(`⚡ أولوية عالية`);
+                break;
             }
-            break;
             
-          case 'record_progress':
+            state.addXP(xpEarned, 'إضافة مهمة');
+            result.effects.push(`⭐ +${xpEarned} XP`);
+            result.xp = xpEarned;
+            break;
+          }
+          
+          // ============================================
+          // ✅ COMPLETE_TASK - إنجاز المهمة مع التأثيرات
+          // ============================================
+          case 'complete_task': {
+            const title = String(command.data.title || '');
+            const priority = String(command.data.priority || 'medium');
+            let xpEarned = 20;
+            
+            result.effects.push(`✅ أنجزت: ${title}`);
+            
+            // XP حسب الأولوية
+            switch (priority) {
+              case 'critical':
+                xpEarned = 100;
+                result.effects.push(`🏆 مهمة حرجة مكتملة!`);
+                break;
+              case 'high':
+                xpEarned = 50;
+                result.effects.push(`🎯 مهمة عالية مكتملة!`);
+                break;
+              case 'medium':
+                xpEarned = 30;
+                break;
+              case 'low':
+                xpEarned = 15;
+                break;
+            }
+            
+            state.addXP(xpEarned, `إنجاز: ${title}`);
+            state.updateStreak();
+            result.effects.push(`⭐ +${xpEarned} XP`);
+            result.effects.push(`🔥 التتابع مستمر`);
+            result.xp = xpEarned;
+            break;
+          }
+          
+          // ============================================
+          // 📚 ADD_EXAM - الاختبار مع التأثيرات
+          // ============================================
+          case 'add_exam': {
+            const title = String(command.data.title || 'اختبار جديد');
+            const subject = String(command.data.subject || command.data.title || '');
+            const examDate = command.data.date ? new Date(command.data.date) : new Date();
+            
+            // 1️⃣ Primary Action
+            state.addExam({
+              id: generateId(),
+              courseId: String(command.data.courseId || ''),
+              title,
+              examDate,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            
+            result.effects.push(`📅 أضفت اختبار: ${title}`);
+            
+            // 2️⃣ Days remaining check
+            const daysUntil = Math.ceil((examDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            let xpEarned = 15;
+            
+            if (daysUntil <= 3) {
+              result.effects.push(`🚨 بعد ${daysUntil} أيام فقط!`);
+              xpEarned = 25;
+            } else if (daysUntil <= 7) {
+              result.effects.push(`⚠️ بعد ${daysUntil} أيام`);
+              xpEarned = 20;
+            }
+            
+            // 3️⃣ Auto-create study tasks
+            const studyTasks = [
+              { title: `مراجعة ${subject}`, days: 0 },
+              { title: `حل أسئلة ${subject}`, days: 2 },
+              { title: `مراجعة نهائية ${subject}`, days: daysUntil - 1 }
+            ];
+            
+            studyTasks.forEach(task => {
+              const taskDate = new Date();
+              taskDate.setDate(taskDate.getDate() + task.days);
+              state.addAssignment({
+                id: generateId(),
+                title: task.title,
+                dueDate: taskDate,
+                status: 'todo',
+                priority: 'high',
+                createdAt: new Date(),
+                updatedAt: new Date()
+              });
+            });
+            result.effects.push(`📋 أنشأت ${studyTasks.length} مهام دراسة`);
+            
+            state.addXP(xpEarned, `إضافة اختبار`);
+            result.effects.push(`⭐ +${xpEarned} XP`);
+            result.xp = xpEarned;
+            break;
+          }
+          
+          // ============================================
+          // 🏋️ RECORD_WORKOUT - الرياضة مع التأثيرات
+          // ============================================
+          case 'record_workout': {
+            const type = String(command.data.type || command.data.workoutType || 'تمرين');
+            const duration = Number(command.data.duration || 30);
+            const calories = Number(command.data.calories || 0);
+            
+            // 1️⃣ Primary Action
+            state.addWorkoutSession({
+              id: generateId(),
+              type,
+              duration,
+              calories,
+              date: new Date(),
+              createdAt: new Date()
+            });
+            
+            // 2️⃣ XP Reward
+            let xpEarned = Math.round(duration * 1.5);
+            result.effects.push(`🏋️ ${type} - ${duration} دقيقة`);
+            result.effects.push(`⭐ +${xpEarned} XP`);
+            
+            // 3️⃣ Calories bonus
+            if (calories > 200) {
+              xpEarned += 10;
+              result.effects.push(`🔥 ${calories} سعرة محروقة! +10 XP`);
+            }
+            
+            state.addXP(xpEarned, `تمرين ${type}`);
+            state.updateStreak();
+            result.effects.push(`🔥 التتابع مستمر`);
+            result.xp = xpEarned;
+            break;
+          }
+          
+          // ============================================
+          // 🔄 COMPLETE_HABIT - العادة مع التأثيرات
+          // ============================================
+          case 'complete_habit': {
+            const habitId = String(command.data.habitId || '');
+            const habitName = String(command.data.habitName || 'عادة');
+            
+            // 1️⃣ Primary Action
+            if (habitId) {
+              state.completeHabit(habitId);
+            }
+            
+            // 2️⃣ XP
+            const xpEarned = 15;
+            state.addXP(xpEarned, `عادة: ${habitName}`);
+            
+            result.effects.push(`✨ أكملت: ${habitName}`);
+            result.effects.push(`⭐ +${xpEarned} XP`);
+            result.effects.push(`🔥 التتابع مستمر`);
+            result.xp = xpEarned;
+            break;
+          }
+          
+          // ============================================
+          // 📝 RECORD_PROGRESS - التقدم (النظام القديم)
+          // ============================================
+          case 'record_progress': {
+            const category = String(command.data.category || 'general');
+            const title = String(command.data.title || 'تقدم');
+            const value = Number(command.data.value || 0);
+            const unit = String(command.data.unit || '');
+            
             state.addDailyRecord({
               id: generateId(),
               date: new Date(),
               type: 'progress',
-              category: String(command.data.category || 'general'),
-              title: String(command.data.title || 'تقدم'),
-              value: Number(command.data.value || 0),
-              unit: String(command.data.unit || ''),
+              category,
+              title,
+              value,
+              unit,
               source: 'ai_recorded',
               createdAt: new Date()
             });
-            break;
             
-          case 'update_grade':
-            if (command.data.subjectId) {
-              state.updateTawjihiSubject(String(command.data.subjectId), {
-                grade: Number(command.data.grade || 0)
-              });
+            const xpEarned = 10;
+            state.addXP(xpEarned, title);
+            
+            result.effects.push(`📊 سجلت: ${title}`);
+            result.effects.push(`⭐ +${xpEarned} XP`);
+            result.xp = xpEarned;
+            break;
+          }
+          
+          // ============================================
+          // 📚 UPDATE_GRADE - تحديث الدرجة
+          // ============================================
+          case 'update_grade': {
+            const subjectId = String(command.data.subjectId || '');
+            const grade = Number(command.data.grade || 0);
+            
+            if (subjectId) {
+              state.updateTawjihiSubject(subjectId, { grade });
+              
+              // Check if good grade
+              let xpEarned = 5;
+              if (grade >= 90) {
+                xpEarned = 30;
+                result.effects.push(`🏆 درجة ممتازة!`);
+              } else if (grade >= 80) {
+                xpEarned = 20;
+                result.effects.push(`🎯 درجة جيدة جداً!`);
+              } else if (grade >= 70) {
+                xpEarned = 10;
+                result.effects.push(`👍 درجة جيدة`);
+              }
+              
+              state.addXP(xpEarned, `تحديث درجة: ${grade}`);
+              result.effects.push(`📝 تم تحديث الدرجة: ${grade}`);
+              result.effects.push(`⭐ +${xpEarned} XP`);
+              result.xp = xpEarned;
             }
             break;
+          }
+          
+          // ============================================
+          // ⚙️ SET_PRIORITY - تحديد الأولوية
+          // ============================================
+          case 'set_priority': {
+            const taskId = String(command.data.taskId || '');
+            const priority = String(command.data.priority || 'medium') as Priority;
+            
+            if (taskId) {
+              state.updateAssignment(taskId, { priority });
+              result.effects.push(`⚡ تم تحديث الأولوية`);
+            }
+            break;
+          }
         }
         
+        // Store in queue with results
         set((state) => ({
-          commandsQueue: [...state.commandsQueue, { ...command, executed: true, result: 'تم التنفيذ' }]
+          commandsQueue: [...state.commandsQueue, { 
+            ...command, 
+            executed: true, 
+            result: result.effects.join(' | '),
+            xpEarned: result.xp
+          }]
         }));
       },
       
